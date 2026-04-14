@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "explain-it-simply-mobile",
+    "name": "ExplainItSimply",
     "slug": "explain-it-simply-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,7 +13,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "ExplainItSimply uses speech recognition to let you speak your text instead of typing.",
+        "NSMicrophoneUsageDescription": "ExplainItSimply needs microphone access for voice input."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +25,22 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "ExplainItSimply needs microphone access for voice input.",
+          "speechRecognitionPermission": "ExplainItSimply uses speech recognition to let you speak your text instead of typing."
+        }
+      ]
+    ]
   }
 }

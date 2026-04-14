@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import {
   StyleSheet,
@@ -11,9 +11,15 @@ import {
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import * as Speech from 'expo-speech';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 
 const API_URL = 'https://app-izuxylzo.fly.dev';
 
@@ -32,6 +38,71 @@ export default function App() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [stats, setStats] = useState<{ original: number; simplified: number } | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // Speech recognition event handlers
+  useSpeechRecognitionEvent('result', (event) => {
+    const transcript = event.results[0]?.transcript || '';
+    if (transcript) {
+      setInputText((prev) => (prev ? prev + ' ' + transcript : transcript));
+    }
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    setIsListening(false);
+  });
+
+  useSpeechRecognitionEvent('error', (event) => {
+    setIsListening(false);
+    if (event.error !== 'no-speech') {
+      setError(`Voice recognition error: ${event.error}`);
+    }
+  });
+
+  const handleVoiceInput = useCallback(async () => {
+    if (isListening) {
+      ExpoSpeechRecognitionModule.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    if (!result.granted) {
+      Alert.alert(
+        'Permission Required',
+        'Microphone and speech recognition permissions are needed for voice input.',
+      );
+      return;
+    }
+
+    setError('');
+    setIsListening(true);
+    ExpoSpeechRecognitionModule.start({
+      lang: 'en-US',
+      interimResults: false,
+      continuous: false,
+    });
+  }, [isListening]);
+
+  const handleListenToResult = useCallback(async () => {
+    if (isSpeaking) {
+      Speech.stop();
+      setIsSpeaking(false);
+      return;
+    }
+
+    if (!simplified) return;
+
+    setIsSpeaking(true);
+    Speech.speak(simplified, {
+      language: 'en-US',
+      rate: 0.9,
+      onDone: () => setIsSpeaking(false),
+      onStopped: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
+  }, [simplified, isSpeaking]);
 
   const handleSimplify = async () => {
     if (!inputText.trim()) return;
@@ -39,6 +110,12 @@ export default function App() {
     setError('');
     setSimplified('');
     setStats(null);
+
+    // Stop any ongoing speech
+    if (isSpeaking) {
+      Speech.stop();
+      setIsSpeaking(false);
+    }
 
     try {
       const res = await fetch(`${API_URL}/api/simplify`, {
@@ -92,7 +169,7 @@ export default function App() {
             </View>
             <View>
               <Text style={styles.headerTitle}>ExplainItSimply</Text>
-              <Text style={styles.headerSubtitle}>Paste anything. Get a simple explanation.</Text>
+              <Text style={styles.headerSubtitle}>Paste, type, or speak. Get a simple explanation.</Text>
             </View>
           </View>
 
@@ -122,12 +199,33 @@ export default function App() {
           </View>
 
           {/* Input */}
-          <Text style={styles.sectionLabel}>Paste your text</Text>
+          <View style={styles.inputHeader}>
+            <Text style={styles.sectionLabel}>Paste or speak your text</Text>
+            <TouchableOpacity
+              onPress={handleVoiceInput}
+              style={[styles.micButton, isListening && styles.micButtonActive]}
+            >
+              <Ionicons
+                name={isListening ? 'stop' : 'mic'}
+                size={20}
+                color={isListening ? '#fff' : '#4f46e5'}
+              />
+              <Text style={[styles.micText, isListening && styles.micTextActive]}>
+                {isListening ? 'Stop' : 'Voice'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {isListening && (
+            <View style={styles.listeningBanner}>
+              <ActivityIndicator color="#4f46e5" size="small" />
+              <Text style={styles.listeningText}>Listening... speak now</Text>
+            </View>
+          )}
           <TextInput
             style={styles.textInput}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Paste any complex text here — a research paper, legal document, technical docs..."
+            placeholder="Paste any complex text here, or tap the mic to speak..."
             placeholderTextColor="#9ca3af"
             multiline
             textAlignVertical="top"
@@ -158,16 +256,28 @@ export default function App() {
           {/* Output */}
           <View style={styles.outputHeader}>
             <Text style={styles.sectionLabel}>Simplified version</Text>
-            {simplified ? (
-              <TouchableOpacity onPress={handleCopy} style={styles.copyButton}>
-                <Ionicons
-                  name={copied ? 'checkmark' : 'copy-outline'}
-                  size={16}
-                  color="#4f46e5"
-                />
-                <Text style={styles.copyText}>{copied ? 'Copied!' : 'Copy'}</Text>
-              </TouchableOpacity>
-            ) : null}
+            <View style={styles.outputActions}>
+              {simplified ? (
+                <>
+                  <TouchableOpacity onPress={handleListenToResult} style={styles.copyButton}>
+                    <Ionicons
+                      name={isSpeaking ? 'stop-circle' : 'volume-high'}
+                      size={16}
+                      color="#4f46e5"
+                    />
+                    <Text style={styles.copyText}>{isSpeaking ? 'Stop' : 'Listen'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleCopy} style={styles.copyButton}>
+                    <Ionicons
+                      name={copied ? 'checkmark' : 'copy-outline'}
+                      size={16}
+                      color="#4f46e5"
+                    />
+                    <Text style={styles.copyText}>{copied ? 'Copied!' : 'Copy'}</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
+            </View>
           </View>
 
           <View style={styles.outputBox}>
@@ -290,6 +400,50 @@ const styles = StyleSheet.create({
   levelLabelActive: {
     color: '#fff',
   },
+  inputHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 0,
+  },
+  micButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#4f46e5',
+    marginBottom: 10,
+  },
+  micButtonActive: {
+    backgroundColor: '#ef4444',
+    borderColor: '#ef4444',
+  },
+  micText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4f46e5',
+  },
+  micTextActive: {
+    color: '#fff',
+  },
+  listeningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#eef2ff',
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  listeningText: {
+    fontSize: 13,
+    color: '#4f46e5',
+    fontWeight: '500',
+  },
   textInput: {
     backgroundColor: '#fff',
     borderWidth: 1,
@@ -333,6 +487,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  outputActions: {
+    flexDirection: 'row',
+    gap: 12,
   },
   copyButton: {
     flexDirection: 'row',
